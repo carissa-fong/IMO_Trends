@@ -1,0 +1,447 @@
+---
+title: "Understanding UN Votes"
+author: "Data warriors"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(include = TRUE, echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center", out.width = "60%")
+```
+
+```{r}
+library(tidyverse) #Includes dplyr, ggplot2, tidyr, readr, purrr
+library(stringr)
+library(readr)
+library(readxl) #To read xls and xlsx.
+library(lubridate) #Date-time manipulation.
+library(ggplot2)
+library(tidytuesdayR) #tidytuesdayR.
+library(ggthemes) #Contains themes for theme_economist(), _wsj(), _gdocs().
+library(ggrepel) #Stands for repulsive textual annotations. It automatically tweaks the positioning of text labels such that they do not fall on top of each other.
+
+library(viridis) #Colour blind suitable.
+library(RColorBrewer) #Coloring also.
+library(maps) #Contains datas on maps: "usa" "france" "italy" "nz", "county" (US), "state" (US), "world", "world2".
+library(sf) #Simple feature (sf) is a common storage and access model for geographic features with spatial geometries. An sf object contains a geometry column that geom_sf() will use to draw the boundaries.
+library(patchwork) #Combine separate ggplot plots into 1.
+```
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(readr)
+
+check_data <- function(data) {
+  cat("### Data Structure\n")
+  str(data)
+
+  cat("\n### Missing Values per Column\n")
+  missing_df <- data %>%
+    summarise_all(~sum(is.na(.))) %>%
+    pivot_longer(everything(), names_to = "Column", values_to = "Missing_Values") %>%
+    arrange(desc(Missing_Values))
+
+  print(knitr::kable(missing_df))
+
+  cat("\n### Total Duplicate Rows\n")
+  duplicates <- sum(duplicated(data))
+  cat(paste0(duplicates, "\n"))
+}
+
+check_factor_levels <- function(data) {
+  for (colname in names(data)) {
+    if (is.factor(data[[colname]])) {
+      cat(paste0("Levels for '", colname, "':\n"))
+      print(levels(data[[colname]]))
+      cat("\n")
+    }
+  }
+}
+
+```
+
+\
+
+```{r}
+country_results <- as_tibble(read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2024/2024-09-24/country_results_df.csv', col_types = cols(
+  year = col_integer(),
+  country = col_character(),
+  team_size_all = col_integer(),
+  team_size_male = col_integer(),
+  team_size_female = col_integer(),
+  p1 = col_integer(),
+  p2 = col_integer(),
+  p3 = col_integer(),
+  p4 = col_integer(),
+  p5 = col_integer(),
+  p6 = col_integer(),
+  p7 = col_integer(),
+  awards_gold = col_integer(),
+  awards_silver = col_integer(),
+  awards_bronze = col_integer(),
+  awards_honorable_mentions = col_integer(),
+  leader = col_character(),
+  deputy_leader = col_character()
+)))
+
+individual_results <- as_tibble(read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2024/2024-09-24/individual_results_df.csv', col_types = cols(
+  year = col_integer(),
+  contestant = col_character(),
+  country = col_character(),
+  p1 = col_integer(),
+  p2 = col_integer(),
+  p3 = col_integer(),
+  p4 = col_integer(),
+  p5 = col_integer(),
+  p6 = col_integer(),
+  p7 = col_integer(),
+  total = col_integer(),
+  individual_rank = col_integer(),
+  award = col_character()
+)))
+
+timeline <- as_tibble(read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2024/2024-09-24/timeline_df.csv', col_types = cols(
+  edition = col_integer(),
+  year = col_integer(),
+  country = col_character(),
+  city = col_character(),
+  countries = col_integer(),
+  all_contestant = col_integer(),
+  male_contestant = col_integer(),
+  female_contestant = col_integer(),
+  start_date = col_date(),
+  end_date = col_date()
+)))
+
+```
+
+# country_results_df analysis
+
+![](images/clipboard-1525157436.png)
+
+## Original Data
+
+```{r}
+check_data(country_results)
+```
+
+## Country_results: Factor data and analysis
+
+```{r}
+
+country_results_cleaned <- country_results %>%
+  mutate(
+    country = as.factor(country),
+    awards_gold = as.factor(awards_gold),
+    awards_silver = as.factor(awards_silver),
+    awards_bronze = as.factor(awards_bronze),
+    awards_honorable_mentions = as.factor(awards_honorable_mentions),
+    p1 = as.factor(p1),
+    p2 = as.factor(p2),
+    p3 = as.factor(p3),
+    p4 = as.factor(p4),
+    p5 = as.factor(p5),
+    p6 = as.factor(p6),
+    p7 = as.factor(p7),
+  )
+
+check_factor_levels(country_results_cleaned)
+summary(country_results_cleaned)
+
+```
+
+## Individual_results_df analysis
+
+![](images/clipboard-2091799831.png)
+
+```{r}
+check_data(individual_results)
+summary(individual_results)
+```
+
+### Check if results tally
+
+```{r}
+discrepancy_check <- individual_results %>%
+  mutate(sum_p = as.integer(p1) + as.integer(p2) + as.integer(p3) +
+                 as.integer(p4) + as.integer(p5) + as.integer(p6)+ as.integer(p7),
+         difference = as.integer(total) - sum_p) %>%
+  filter(difference != 0)
+
+# Show rows with discrepancy (All the totals add up if we use p7)
+print(discrepancy_check %>% 
+        select(year, contestant, country, p1, p2, p3, p4, p5, p6,p7, total, sum_p, difference))
+```
+
+## Individual results cleaned data
+
+```{r}
+individual_results_cleaned <- individual_results %>%
+  mutate(
+    country = as.factor(country),
+    p1 = as.factor(p1),
+    p2 = as.factor(p2),
+    p3 = as.factor(p3),
+    p4 = as.factor(p4),
+    p5 = as.factor(p5),
+    p6 = as.factor(p6),
+    p7 = as.factor(p7),
+    total = as.factor(total),
+    award = as.factor(award)
+  )
+
+check_factor_levels(individual_results_cleaned)
+check_data(individual_results_cleaned)
+```
+
+### Finding rows with "C01" to "C26" as countries and changing them to Russian Federation
+
+```{r}
+unofficial_entries <- individual_results %>%
+  filter(country %in% c(
+    "C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10",
+    "C11", "C12", "C13", "C14", "C15", "C16", "C17", "C18", "C19", "C20",
+    "C21", "C22", "C23", "C24", "C25", "C26"
+  ))
+
+# Summary
+cat("Number of entries with country codes C01 to C26:", nrow(unofficial_entries), "\n")
+print((unofficial_entries))
+
+# List of country codes representing Russian participants
+russian_codes <- c(
+  "C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10",
+  "C11", "C12", "C13", "C14", "C15", "C16", "C17", "C18", "C19", "C20",
+  "C21", "C22", "C23", "C24", "C25", "C26"
+)
+
+# Replace these country codes with "Russian Federation"
+individual_results_cleaned <- individual_results %>%
+  mutate(country = ifelse(country %in% russian_codes, "Russian Federation", country))
+
+individual_results_cleaned <- individual_results_cleaned %>%
+  mutate(
+    country = as.factor(country),
+    p1 = as.factor(p1),
+    p2 = as.factor(p2),
+    p3 = as.factor(p3),
+    p4 = as.factor(p4),
+    p5 = as.factor(p5),
+    p6 = as.factor(p6),
+    p7 = as.factor(p7),
+    total = as.factor(total),
+    award = as.factor(award)
+  )
+
+check_factor_levels(individual_results_cleaned)
+
+```
+
+### Filtering the timeline to start at 1981 (the year when the score is standardized to 7 points each
+
+Start 1992 because USSR collapsed in 1991, resulting in 15 new countries being formed.
+
+```{r}
+individual_results_cleaned_after_1992 <- individual_results_cleaned %>%
+  filter(year > 1991)
+
+country_results_cleaned_after_1992 <- country_results_cleaned %>%
+  filter(year > 1991)
+
+check_data(individual_results_cleaned_after_1992)
+summary(individual_results_cleaned_after_1992)
+
+country_results_cleaned_after_1992 %>% 
+  filter(p1 == 8)
+```
+
+## timeline_df original
+
+```{r}
+check_data(timeline)
+```
+
+![](images/clipboard-1596240651.png)
+
+### Checking for mismatch
+
+```{r}
+# Check for mismatches
+inconsistent_rows <- timeline %>%
+  filter((male_contestant + female_contestant) != all_contestant)
+
+# Display number of inconsistent entries
+n_inconsistent <- nrow(inconsistent_rows)
+cat("Number of inconsistent rows:", n_inconsistent, "\n")
+
+# Optionally: View the actual inconsistent rows
+# print(inconsistent_rows)
+
+# Add a column showing the discrepancy
+discrepancy_check <- timeline %>%
+  mutate(sum_mf = male_contestant + female_contestant,
+         difference = all_contestant - sum_mf) %>%
+  filter(difference != 0)
+
+# Show the rows with mismatch and the difference
+print(discrepancy_check %>% select(year, country, male_contestant, female_contestant, all_contestant, sum_mf, difference))
+
+```
+
+## timeline data cleaned and analysis
+
+```{r}
+
+timeline_cleaned <- timeline %>%
+  mutate(
+    edition = as.factor(edition),
+    country = as.factor(country),
+    city = as.factor(city),
+    countries = as.factor(countries)
+  )
+
+check_factor_levels(timeline_cleaned)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+country_results_cleaned_after_1992
+```
+
+Isaac: Why analyze only for the last 10 years? In the past decade, stereotypes about Asians excelling in mathematics have been amplified and widely circulated on social media platforms (e.g., Reddit, TikTok, Twitter). These narratives have contributed to a modern, culturally ingrained perception that all Asians are naturally good at math.
+```{r}
+country_results_from2015 <- country_results_cleaned_after_1992 %>% filter(year %in% c("2015","2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024"))
+glimpse(country_results_from2015)
+```
+
+
+
+
+Isaac: Allocation is based on https://www.worldometers.info/geography/how-many-countries-in-asia/. Countries were grouped into 6 geographical regions:
+Eastern Asia
+Southern Asia
+Southeastern Asia
+Central Asia
+Western Asia
+Non Asia (all others).
+```{r}
+southern_asia <- c("India", "Pakistan", "Bangladesh", "Philippines", "Islamic Republic of Iran", 
+                   "Nepal", "Sri Lanka", "Bhutan")
+
+eastern_asia <- c("People's Republic of China", "Japan", "Republic of Korea", "Mongolia")
+
+southeastern_asia <- c("Indonesia", "Vietnam", "Thailand", "Myanmar", "Malaysia", "Cambodia", 
+                       "Laos", "Singapore", "Brunei")
+
+western_asia <- c("Türkiye", "Iraq", "Saudi Arabia", "Syria", "United Arab Emirates", "Azerbaijan", 
+                  "Israel", "Palestine", "Oman", "Kuwait", "Georgia", "Armenia", "Bahrain", "Cyprus")
+
+central_asia <- c("Uzbekistan", "Kazakhstan", "Tajikistan", "Turkmenistan", "Kyrgyzstan")
+
+country_results_from2015_2 <- country_results_from2015 %>% mutate( Entity = case_when(
+      country %in% southern_asia ~ "Southern Asia",
+      country %in% eastern_asia ~ "Eastern Asia",
+      country %in% southeastern_asia ~ "Southeastern Asia",
+      country %in% western_asia ~ "Western Asia",
+      country %in% central_asia ~ "Central Asia",
+      TRUE ~ "Non Asia")) %>% select(-`deputy_leader`, -`leader`, -`awards_honorable_mentions`, -`team_size_all`, -`team_size_male`, -`team_size_female`, -`p1`, -`p2`, -`p3`, -`p4`, -`p5`, -`p6`, -`p7`)
+country_results_from2015_2
+```
+
+
+
+
+
+Isaac: To quantify and compare IMO performance across countries, a composite score called the "award score" was calculated based on the number of medals each country received annually. The scoring system assigned:
+
+3 points for each gold medal,
+2 points for each silver medal,
+1 point for each bronze medal.
+
+Missing values in the medal counts (for gold, silver, or bronze) were treated as 0. For each country in each year (from 2015 onward), a total award score was computed: award_score= 3× gold + 2× silver + 1× bronze.
+
+Countries were grouped into six geographical regions:
+
+Eastern Asia
+
+Southern Asia
+
+Southeastern Asia
+
+Central Asia
+
+Western Asia
+
+Non Asia (all others)
+
+For each region and year, the mean award score was calculated by averaging the total award scores of all countries in that region for that year. This mean award score per region per year was then used to analyze performance trends and make comparisons between Asian subregions and Non-Asian countries.
+```{r}
+country_results_from2015_3 <- country_results_from2015_2 %>% mutate(across(3:5, as.numeric)) %>% mutate(
+    awards_gold = replace_na(awards_gold, 0),
+    awards_silver = replace_na(awards_silver, 0),
+    awards_bronze = replace_na(awards_bronze, 0),
+    award_score = 3 * awards_gold + 2 * awards_silver + 1 * awards_bronze)
+country_results_from2015_3
+```
+```{r}
+country_results_from2015_4 <- country_results_from2015_3 %>% group_by(Entity, year) %>% summarize(mean_award_score = mean(award_score, na.rm = TRUE), .groups = "drop")
+country_results_from2015_4
+```
+
+```{r}
+country_results_from2015_5 <- country_results_from2015_4 %>% filter(Entity != "Non Asia") %>% rename(Asia_Region = Entity) %>% left_join(country_results_from2015_4 %>% filter(Entity == "Non Asia") %>% select(year, mean_award_score) %>% rename(Non_Asia_Score = mean_award_score), by = "year")
+country_results_from2015_5
+```
+
+
+
+Isaac: Dumbbell plot that shows mean award scores at the International Math Olympiad (IMO) from 2015 to 2024, comparing each Asian region (blue) with the Non-Asian average (grey) annually. Each segment connects the Non-Asian mean to the respective Asian region’s score for the same year, helping visualize performance differences over time.
+
+```{r fig.cap = "Dumbbell plot that shows mean award scores at the International Math Olympiad (IMO) from 2015 to 2024, comparing each Asian region (blue) with the Non-Asian average (grey) annually. Each segment connects the Non-Asian mean to the respective Asian region’s score for the same year, helping visualize performance differences over time. "}
+
+
+ggplot(country_results_from2015_5, aes(x = year)) +
+  geom_segment(aes(xend = year, y = Non_Asia_Score, yend = mean_award_score), color = "grey50") +
+  geom_point(aes(y = Non_Asia_Score), color = "grey40", size = 3) +
+  geom_point(aes(y = mean_award_score), color = "steelblue", size = 3) +
+  facet_wrap(~ Asia_Region, ncol = 2) +
+  scale_x_continuous(breaks = 2015:2024) +
+  theme_minimal() +
+  labs(title = "Comparison of IMO Performance: Asia Regions vs Non Asia (2015–2024)", subtitle = "Grey = Non Asia | Blue = Asia Region", x = "Year", y = "Mean Award Score")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
