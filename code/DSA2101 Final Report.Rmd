@@ -1,0 +1,650 @@
+---
+title: "**An Analysis of Trends in the International Mathematical Olympiad Over Time: A Data-driven Perspective**"
+author: "Jiang Xinyue, Neo Kai Joon, Liu Fang Hsu, Eng Jin Yu, Isaac Foo, Carissa Fong"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+---
+
+<style>
+
+#TOC {
+  color: #0d3b66;
+  background-color: #e0f7fa;
+  border-color: #66b2ff;
+  border-width: medium;
+  padding: 1em;
+  border-radius: 8px;
+}
+
+body {
+  color: #0d3b66;
+  background-color: #e0f7fa;
+  font-family: "Helvetica", sans-serif;
+  line-height: 1.6;
+  padding: 2em;
+}
+
+pre {
+  color: #1c4e80;
+  background-color: #f0fbff; 
+  border-color: #66b2ff;
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 6px;
+  padding: 1em;
+  overflow-x: auto;
+}
+</style>
+
+
+
+## **Section 1: Introduction and Question of Interest**
+
+The dataset we are exploring is the **International Math Olympiad Data** where the latest data obtained is from 2024-09-24. The International Math Olympiad (IMO) is the World Championship Mathematics Competition for High School students and takes place every year in different countries. 
+
+Its first rendition was held in 1959 in Romania, with 7 different participating countries. Over the years, many countries such as Brasil and Hong Kong have hosted it with the latest IMO, its 65th edition in 2024, being held in Bath, United Kingdom, and has 108 participating countries.  
+
+IMO has 6 question problems and is held over 2 consecutive days with 3 question problems held each day. There are 3 datasets: “country_results_df”, “individual_results_df” and “timeline_df”. 
+
+**“country_results_df”** is a data frame focusing on the information of each participating country for the year’s IMO, with variables showing the following: 
+
+- Year and Host Country for each Edition
+- Team Size
+- Gender Composition for each Team
+- Scores for Individual Questions
+- Number of each Award Obtained (Gold, Silver, Bronze and Honourable Mention) 
+- Leader and Deputy Leader for each Country
+
+**“individual_results_df”** focuses more on each individual’s information and results, as this dataset consists of:
+
+- year
+- contestant name
+- country
+- individual scores for each  questions
+- total score
+- individual rank
+- award earned for participating individuals 
+
+The last dataset, **“timeline_df”**, focuses on the history, timeline and information of IMOs over the years. It comprises the following:
+
+- edition number
+- year
+- hosting country and city
+- number of participating countries
+- number of total participating contestants
+- number of male and female contestants
+- start and end date for each year’s IMO
+
+Some data frames have the same columns and column names like year of each IMO, host country and city and total number of participants and number of male and female participants.
+
+Our question of interest regarding the dataset is:
+
+**Do stereotypes about who can do well in Mathetics still hold true and if not how are they breaking down over time?**
+
+We are investigating if some stereotypes about which groups of people in the world can excel in math are true, as the data provided in the 3 datasets provide sufficient information to support or reject this claim. 
+
+Our first sub-question is: **Is the stereotype of whether Asians are good at Mathematics true?** 
+
+We group each country in our data into 2 categories of whether they are geographically situated in Asia or Non-Asia, and thereafter compare the distribution of total points obtained for all questions in the year’s IMO between Asian countries and Non-Asian countries to see if the difference in results is big enough to constitute this stereotype. 
+
+The second question about math stereotypes is: **In a supposedly male dominated field like Mathematics, how does the participation of Male vs Female candidates change over time?**
+
+We investigate if gender composition in IMO groups have changed over time as Math is supposed to be a male dominated field according to stereotypes. We do so by looking at the average number of female participants per team over time and appending the total number of female participants that year onto the plot point to see if the average number of female participants per team is significantly low enough to prove math is a male dominated field. 
+
+Our last question is: **Is it true financially developed countries can outperform less developed countries in math for IMO?**
+
+We gather data to classify each country based on their financial status into financially developed and less developed countries, and investigate the distribution of awards by countries to see if there is a sufficient difference in performance in IMO for financially developed countries as compared to less developed countries.
+
+
+
+## **Section 2: Data Cleaning for Summary, Visualisation and Analysis**
+
+### 2.1 Setup
+
+This section loads required libraries and defines utility functions for exploring the structure and quality of the dataset.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = TRUE)
+library(readr)
+library(lubridate)
+library(stringr)
+library(tidyverse)
+library(dplyr)
+
+# Function to check structure, NA values, and duplicates
+check_data <- function(data) {
+  cat("### Data Structure\n")
+  str(data)
+  cat("\n### Missing Values per Column\n")
+  missing_df <- data %>%
+    summarise_all(~sum(is.na(.))) %>%
+    pivot_longer(everything(), names_to = "Column", values_to = "Missing_Values") %>%
+    arrange(desc(Missing_Values))
+  print(knitr::kable(missing_df))
+  cat("\n### Total Duplicate Rows:\n")
+  cat(sum(duplicated(data)), "\n")
+}
+
+# Function to print levels for all factor columns
+check_factor_levels <- function(data) {
+  for (colname in names(data)) {
+    if (is.factor(data[[colname]])) {
+      cat(paste0("Levels for '", colname, "':\n"))
+      print(levels(data[[colname]]))
+      cat("\n")
+    }
+  }
+}
+```
+
+
+### 2.2 Reading in Base Data
+
+This section imports the country-level and individual-level IMO results.
+
+```{r data_import}
+country_results <- as_tibble(read_csv("../data/country_results_df.csv", na = c("NA", ""), col_types = cols(
+  year = col_integer(),
+  country = col_character(),
+  team_size_all = col_integer(),
+  team_size_male = col_integer(),
+  team_size_female = col_integer(),
+  p1 = col_integer(),
+  p2 = col_integer(),
+  p3 = col_integer(),
+  p4 = col_integer(),
+  p5 = col_integer(),
+  p6 = col_integer(),
+  p7 = col_integer(),
+  awards_gold = col_integer(),
+  awards_silver = col_integer(),
+  awards_bronze = col_integer(),
+  awards_honorable_mentions = col_integer(),
+  leader = col_character(),
+  deputy_leader = col_character()
+)))
+
+individual_results <- as_tibble(read_csv("../data/individual_results_df.csv", na = c("NA", ""), col_types = cols(
+  year = col_integer(),
+  contestant = col_character(),
+  country = col_character(),
+  p1 = col_integer(),
+  p2 = col_integer(),
+  p3 = col_integer(),
+  p4 = col_integer(),
+  p5 = col_integer(),
+  p6 = col_integer(),
+  p7 = col_integer(),
+  total = col_integer(),
+  individual_rank = col_integer(),
+  award = col_character()
+)))
+```
+
+
+### 2.3: Data Exploration
+
+#### 2.3.1 Country Results Exploration
+The data post-1991 were filtered and the structure and missing values were checked for. The following were discovered during the process:
+
+-   Important columns like Year, country and team size have no NA values
+
+-   The scores for p1 to p6 as well as the awards section are all consistent.
+
+-   The only column with NA values is The Democratic Republic of Korea(North Korea) in 2010
+
+```{r country_results_exploration}
+# Filter data after 1991 and convert appropriate columns to factors for analysis
+country_results_analysis <- country_results %>%
+  filter(year > 1991) %>%
+  mutate(
+    country = as.factor(country),
+    awards_gold = as.factor(awards_gold),
+    awards_silver = as.factor(awards_silver),
+    awards_bronze = as.factor(awards_bronze),
+    awards_honorable_mentions = as.factor(awards_honorable_mentions),
+    p1 = as.factor(p1),
+    p2 = as.factor(p2),
+    p3 = as.factor(p3),
+    p4 = as.factor(p4),
+    p5 = as.factor(p5),
+    p6 = as.factor(p6),
+    p7 = as.factor(p7)
+  )
+
+# Check data structure and missing values
+check_data(country_results_analysis)
+check_factor_levels(country_results_analysis)
+
+# Identify row with missing p1 to p6 values
+country_results_analysis %>%
+  filter(is.na(p1))
+
+```
+
+#### 2.3.2 Individual Results Exploration
+
+For the exploration of the Individual Results Data, we checked for its data structure, missing values, and consistency between problem scores and total score. The following were discovered:
+
+-   Many countries with placeholder names "C1" to "C26"
+
+-   The total and sum of p1 to p7 is consistent.
+
+-   There is one row with NA values for p1 to p6 (1992, Alexei Borodin)
+
+```{r individual_results_exploration}
+# Filter data after 1991 and convert appropriate columns to factors for analysis
+individual_results_analysis <- individual_results %>%
+  filter(year > 1991) %>%
+  mutate(
+    country = as.factor(country),
+    p1 = as.factor(p1),
+    p2 = as.factor(p2),
+    p3 = as.factor(p3),
+    p4 = as.factor(p4),
+    p5 = as.factor(p5),
+    p6 = as.factor(p6),
+    p7 = as.factor(p7),
+    total = as.factor(total),
+    award = as.factor(award)
+  )
+
+# Check data structure and missing values
+check_data(individual_results_analysis)
+check_factor_levels(individual_results_analysis)
+
+# Identify rows with missing p1 values
+individual_results_analysis %>%
+  filter(is.na(p1))
+
+# Check for discrepancies between sum of problem scores and total score
+individual_results %>%
+  mutate(
+    sum_p = as.integer(p1) + as.integer(p2) + as.integer(p3) +
+            as.integer(p4) + as.integer(p5) + as.integer(p6) + as.integer(p7),
+    difference = as.integer(total) - sum_p
+  ) %>%
+  filter(difference != 0)
+
+
+```
+
+
+### 2.4: Data Transformation
+
+#### 2.4.1 Standardizing Russian Country Codes
+
+Relabel unofficial codes C01–C26 as "Russian Federation".
+
+```{r relabel_russian_entries}
+russian_codes <- sprintf("C%02d", 1:26)
+
+individual_results_standardized <- individual_results %>%
+  mutate(country = ifelse(country %in% russian_codes, "Russian Federation", country))
+```
+
+#### 2.4.2 Creating Russia Country Rows (2022–2024)
+
+Aggregate Russian participants' data into new country-level rows.
+
+```{r create_russian_rows}
+russian_2022_2024 <- individual_results_standardized %>%
+  filter(country == "Russian Federation", year %in% 2022:2024)
+
+country_russia_rows <- russian_2022_2024 %>%
+  group_by(year) %>%
+  summarise(
+    country = "Russian Federation",
+    team_size_all = n(),
+    team_size_male = 0,
+    team_size_female = 0,
+    p1 = sum(p1), p2 = sum(p2), p3 = sum(p3),
+    p4 = sum(p4), p5 = sum(p5), p6 = sum(p6), p7 = 0,
+    awards_gold = sum(award == "Gold medal"),
+    awards_silver = sum(award == "Silver medal"),
+    awards_bronze = sum(award == "Bronze medal"),
+    awards_honorable_mentions = sum(award == "Honourable mention"),
+    leader = NA, deputy_leader = NA
+  )
+
+country_results_complete <- bind_rows(country_results, country_russia_rows)
+```
+
+#### 2.4.3 Final Cleanup: Replace NAs with 0 and filter post-1991
+
+```{r final_cleanup}
+individual_results_final <- individual_results_standardized %>%
+  filter(year > 1991) %>%
+  mutate(across(p1:total, ~ replace_na(., 0)))
+
+country_results_final <- country_results_complete %>%
+  filter(year > 1991) %>%
+  mutate(across(team_size_all:awards_honorable_mentions, ~ replace_na(., 0)))
+```
+
+
+### 2.5 Final Output
+
+The following are the cleaned datasets that should be used for analysis:
+
+-   `individual_results_final`
+-   `country_results_final`
+
+```{r}
+head(individual_results_final)
+head(country_results_final)
+```
+
+
+### 2.6 Summary and Additional info
+
+#### 2.6.1 Key Outcomes of Data Cleaning
+
+The following key outcomes were achieved from the data cleaning process:
+
+1.  Filtered both datasets to include only data after 1991 as specified
+
+2.  Standardized country names, particularly for Russian Federation participants (codes C01-C26)
+
+3.  Created and added missing country-level data for Russian Federation from 2022-2024
+
+4.  Addressed missing values by replacing NAs with zeros in relevant numeric columns
+
+5.  Verified data integrity by checking for score discrepancies
+
+#### 2.6.2 Final Datasets for Analysis
+
+-   **individual_results_final**: Contains cleaned individual contestant data from 1992 onwards
+
+-   **country_results_final**: Contains cleaned country-level results data from 1992 onwards
+
+#### 2.6.3 For Team Members
+
+These datasets are now ready for analysis. The following are to be noted when working with the data :
+
+-   Problem scores (p1-p7) represent points earned on each problem
+
+-   For some years, p7 may not be present (competition had 6 problems)
+
+-   Team size data may be incomplete for some countries, especially gender breakdowns
+
+-   Russian Federation data from 2022-2024 was reconstructed from individual entries
+
+#### 2.6.4 Final problems with data
+
+1. Splitting of Yugoslavia into Serbia, Bosnia and Montenegro
+
+-   Yugoslavia officially split into 3 countries in 1991 - 1992. However, there still exists a small version of Yugoslavia from 1992 till 2006. Its name then changed to "Serbia and Montenegro"
+
+```{r}
+individual_results_final %>%
+  filter(country == "Yugoslavia")
+```
+
+2. Recombination and splitting again of **Serbia and Montenegro**
+
+-   Serbia and Montenegro combined in 2003 to 2006
+
+-   They split up again after 2006 to become 2 separate countries "Serbia" and "Montenegro"
+
+3. The splitting of Czechoslovakia in 1993 into Czech republic and Slovakia
+
+
+
+## **Section 3: Data Visualisation with Plots**
+
+### Plot 1: Asians vs Non-Asians Participation Over Time 
+
+#### 1.Further Cleaning and Summary
+
+To investigate stereotypes around mathematical performance across global regions, we used the individual_results_df.csv dataset from the International Math Olympiad (IMO), focusing on results between 1992 and 2024. Several preprocessing steps were conducted.
+
+Other than data cleaning performed before generating any of the three plots, further cleaning was executed in the generation of this plot. A new variable Entity was created to group countries into six regions: Eastern Asia, Southeastern Asia, Southern Asia, Central Asia, Western Asia, and Non Asia. This categorization helped in region comparative analysis. Aggregation was also required. We calculated each country's mean score per participant per year by summing individual scores and dividing by the number of participants. We do this to ensure a fair comparison between countries performance. Then, we calculated the regional average of these country-level means per year, giving us a single yearly average score per region.
+
+"Entity" was mutated based on regional classification and clean columns. Allocation is based on How Many Countries in Asia? - Worldometer (n.d.). Countries were grouped into 6 geographical regions: Eastern Asia, Southern Asia, Southeastern Asia, Central Asia, Western Asia, Non Asia (all others).
+
+```{r}
+southern_asia <- c("India", "Pakistan", "Bangladesh", "Islamic Republic of Iran", 
+                   "Nepal", "Sri Lanka", "Bhutan")
+
+eastern_asia <- c("People's Republic of China", "Japan", "Republic of Korea", "Mongolia")
+
+southeastern_asia <- c("Indonesia", "Vietnam", "Thailand", "Myanmar", "Malaysia", "Cambodia", 
+                       "Laos", "Singapore", "Brunei", "Philippines")
+
+western_asia <- c("Türkiye", "Iraq", "Saudi Arabia", "Syria", "United Arab Emirates", "Azerbaijan", 
+                  "Israel", "Palestine", "Oman", "Kuwait", "Georgia", "Armenia", "Bahrain", "Cyprus")
+
+central_asia <- c("Uzbekistan", "Kazakhstan", "Tajikistan", "Turkmenistan", "Kyrgyzstan")
+
+individual_results_final2 <- individual_results_final %>% mutate( Entity = case_when(
+      country %in% southern_asia ~ "Southern Asia",
+      country %in% eastern_asia ~ "Eastern Asia",
+      country %in% southeastern_asia ~ "Southeastern Asia",
+      country %in% western_asia ~ "Western Asia",
+      country %in% central_asia ~ "Central Asia",
+      TRUE ~ "Non Asia")) %>% select(-`contestant`, -`individual_rank`, -`award`, -`p1`, -`p2`, -`p3`, -`p4`, -`p5`, -`p6`, -`p7`)
+individual_results_final2
+```
+
+Calculate average score per participant per country per year.
+```{r}
+country_mean_scores <- individual_results_final2 %>%
+  group_by(country, year, Entity) %>%
+  summarize(
+    total_score = sum(total, na.rm = TRUE),
+    participants = n(),
+    mean_score_per_participant = total_score / participants,
+    .groups = "drop")
+country_mean_scores
+```
+
+Summarize `Mean score per partcipant` per Entity per Year.
+```{r}
+entity_yearly_scores <- country_mean_scores %>%
+  group_by(Entity, year) %>%
+  summarize(
+    mean_score_per_participant = mean(mean_score_per_participant, na.rm = TRUE),
+    .groups = "drop"
+  )
+entity_yearly_scores
+```
+
+Create comparison table between each Asian region and Non Asia.
+```{r}
+asia_vs_non_asia <- entity_yearly_scores %>%
+  filter(Entity != "Non Asia") %>%
+  rename(Asia_Region = Entity) %>%
+  left_join(
+    entity_yearly_scores %>%
+      filter(Entity == "Non Asia") %>%
+      select(year, mean_score_per_participant) %>%
+      rename(Non_Asia_Score = mean_score_per_participant),
+    by = "year"
+  )
+asia_vs_non_asia
+```
+
+#### 2.Rationale for Use of Visualisation Method
+
+The visualization used is a dumbbell plot, with the following components:
+X-axis: Year (from 1992 to 2024).
+Y-axis: Mean score per participant.
+Facets: Each subplot (facet) represents one Asian region.
+Grey points: Represent the average score of all Non Asian countries for that year.
+Blue points: Represent the average score for the specific Asian region.
+Line segments: Connect the two points, helping illustrate the performance gap (or similarity) between the Asian region and Non Asian countries for that year.
+
+This plot type is ideal for comparing two related metrics (in this case, regional vs. Non Asian scores) across time. It allows for a clear visual cue on whether the Asian region is outperforming or underperforming relative to the "non-Asian" global average.
+
+```{r fig.cap = "Dumbbell plot that shows mean score per participant at the International Math Olympiad (IMO) from 1992 to 2024, comparing each Asian region (blue) with the Non-Asian average (grey) annually. Each segment connects the Non-Asian mean per participant to the respective Asian region’s mean per participant score for the same year, helping visualize performance differences over time."}
+ggplot(asia_vs_non_asia, aes(x = year)) +
+  geom_segment(aes(xend = year, y = Non_Asia_Score, yend = mean_score_per_participant), color = "grey50") +
+  geom_point(aes(y = Non_Asia_Score), color = "grey40", size = 3) +
+  geom_point(aes(y = mean_score_per_participant), color = "steelblue", size = 3) +
+  facet_wrap(~ Asia_Region, ncol = 2) +
+  scale_x_continuous(breaks = 1992:2024) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  labs(
+    title = "Comparison of IMO Performance: Asia Regions vs Non Asia (1992–2024)",
+    subtitle = "Grey = Non Asia | Blue = Asia Region",
+    x = "Year",
+    y = "Mean Score per Participant"
+  )
+```
+
+
+### Plot 2: Number of Participating Females Over Time
+
+In the plot below, the x-axis represents the year, while the y-axis shows the average number of female participants per team in each corresponding year. This line graph is ideal for addressing the question, "In a male-dominated field like mathematics, is it getting better over time?" because it effectively captures trends in female participation across time. The continuous line helps highlight whether there has been consistent growth, stagnation, or decline in female representation. The use of clear data points and a soft, distinguishable color further enhances readability, making it easy to interpret whether the field is becoming more inclusive for women over the years.
+
+```{r}
+#Data cleaning
+plot_avg_female <- country_results_final %>%
+  filter(year > 1991) %>%
+  replace_na(list(
+    team_size_female = 0
+  )) %>%
+  group_by(year) %>%
+  summarise(
+    avg_num_female = mean(team_size_female, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+ggplot(plot_avg_female, aes(x = year, y = avg_num_female)) +
+  geom_line(color = "lightpink2", size = 1.2) +
+  geom_point(color = "lightpink2", size = 3) +
+  scale_x_continuous(breaks = seq(min(plot_avg_female$year), max(plot_avg_female$year), by = 1)) +
+  scale_y_continuous(
+    limits = c(0, NA),
+    breaks = seq(0, max(plot_avg_female$avg_num_female), by = 0.1)
+  ) +
+  labs(
+    title = "Average Number of Female Participants per Team Over Time",
+    x = "Year",
+    y = "Average Number of Female Participants per Team"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 75, hjust = 1),
+  )
+
+```
+
+
+### Plot 3: Developing vs Developed Countries Performance Over Time
+
+This plot explores the `avg_team_score` variable against the `year` variable and aims to see if the status of the country (Developed or Developing) affects the average number of points attained by the country. We believe a bar graph is ideal to display this relationship as it showcases the mean points attained by each type of country across the years, from 1992 to 2024. Thus, we can better compare the difference in performance between the Developing and Developed countries to help answer our overarching question. For our analysis we have taken the list of developed countries from the World Population review which classifies a Developed Country as one that has a Human Development Index (HDI) greater than 0.800, which represents a higher quality of life. 
+
+We have decided to account for differing team size of each country by taking the mean points per country instead of the overall number of points or overall number of awards. We than accounted for differing number of Developed vs Developing countries that participated by taking the mean number of points of Developed vs  Developing, instead of the total points scored. We have also decided to facet by decade for a clearer comparison. The classification of countries into `developed_countries` was in accordance to Developed Countries 2025 (n.d.).
+
+```{r}
+## preparing data 
+
+## list of developed countries 
+developed_countries <- c("United States of America", "Canada", "United Kingdom", "Germany", "France", 
+                         "Italy", "Japan", "Republic of Korea", "Australia", "New Zealand",
+                         "Norway", "Sweden", "Denmark", "Finland", "Netherlands",
+                         "Switzerland", "Austria", "Belgium", "Ireland", "Luxembourg",
+                         "Spain", "Portugal", "Greece", "Israel", "Singapore", 
+                         "Iceland", "Slovenia", "Estonia", "Czech Republic", 
+                         "Lithuania", "Latvia", "Poland", "Hungary", "Slovakia", "Hong Kong", "Liechtenstein", "United Arab Emirates", "Malta", "Cyprus", "Bahrain", "Andorra", "Croatia", "Saudi Arabia", "Qatar", "San Marino", "Chile", "Türkiye", "Argentina", "Kuwait", "Montenegro", "Saint Kitts and Nevis", "Uruguay", "Romania", "Antigua and Barbuda", "Brunei", "Russian Federation", "Panama", "Bahamas", "Oman", "Georgia", "Trinidad and Tobago", "Barbados", "Malaysia", "Costa Rica", "Serbia", "Thailand", "Kazakhstan", "Seychelles", "Belarus")
+
+plot <- country_results_final %>%
+  mutate(status = ifelse(country %in% developed_countries, "Developed", "Developing")) %>%
+  group_by(year, country, status) %>%
+  summarise(average_points = (sum(p1 + p2 + p3 + p4 + p5 + p6 + p7))/ team_size_all, na.rm = T) %>%
+  ungroup()
+
+plot_summary <- plot %>%
+  mutate(decade = paste0(floor(year / 10) * 10, "s")) %>% 
+  group_by(year, status, decade) %>%
+  summarise(avg_team_score = mean(average_points, na.rm = TRUE), .groups = "drop")
+
+## plot 
+library(scales)
+ggplot(plot_summary, aes(x = year, y = avg_team_score, fill = status)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Average IMO Team Score by Development Status (1992 to 2024)",
+       x = "Year", y = "Average Team Score") +
+  scale_x_continuous(breaks = pretty_breaks(n = 5), labels = function(x) format(x, digits = 1)) +
+  facet_wrap(~ decade, scales = "free_x") +
+  theme_minimal()
+
+```
+
+
+
+## **Section 4: Discussion**
+
+### Plot 1: Asians vs Non-Asians Performance Over Time 
+
+The visualization reveals that **Eastern Asia consistently outperforms the Non Asian regions**, which reinforces long-standing stereotypes about East Asian excellence in mathematics. This trend is largely driven by **countries like China, Japan, and South Korea, whose teams perform at a high level year after year**.
+
+However, when we look at **Southeastern Asia**, an interesting pattern emerges: although this region lagged behind the Non Asian average in the 1990s and early 2000s, there has been a clear **upward trajectory over the last decade**, with Southeastern Asia now frequently matching or surpassing the Non Asian average. This improvement could reflect **increased investment in education, stronger STEM infrastructure, and greater regional competitiveness in recent decades** — reinforcing the stereotypes shared by the Eastern Asians.
+
+In contrast, **Southern Asia has had a more volatile performance**. While the region did occasionally outperform Non Asia in the 1990s, its scores have since aligned more closely with Non Asian averages, showing less clear upward momentum. **Western and Central Asia, meanwhile, have remained relatively stable throughout the years**, generally hovering close to the global average with modest fluctuations.
+
+These findings indicate that while certain parts of Asia, particularly East Asia and Southeast Asia, continue to reinforce the "good at math" stereotype, other Asian regions show more mixed results, suggesting a **breakdown of overgeneralized assumptions**. Cultural, educational, and economic factors likely influence these trends more than ethnicity or geography alone.
+
+
+### Plot 2: Number of Participating Females Over Time
+
+The line plot reveals that there is a **gradual but increasing number of female participants over the years**. This trend suggests that the presence of women in mathematics, traditionally a male-dominated field (Wang & Degol, 2017), is indeed improving over time. While the increases appear incremental, the consistent growth signifies a **broader cultural and institutional shift towards greater inclusivity**. The year-on-year rise in average female participation indicates that more women are entering mathematics-related competitions or teams, potentially due to expanding outreach programs, mentorship opportunities, or shifting societal attitudes that challenge the stereotype of math as a male-centric discipline (Riegle-Crumb, Moore, & Buontempo, 2017). The above insights also highlights the continued need for intentional efforts to sustain and accelerate this positive trajectory. The **average still remains relatively low**, underscoring that while progress is evident, parity has not yet been achieved.
+
+
+### Plot 3: Developing vs Developed Countries Performance Over Time
+
+The bar plot reveals that from the 1990s to early 2000s, developing countries and developed countries performed **relatively similarly**, with only a small performance gap typically led by Developed countries except for 1992, 1995, 1998 and 2004 where developing countries scored better. The result could be due to **consistent strong teams** such as those from **China, Iran and Vietnam**, that are often classified as developing in GDP terms. 
+
+However, from 2005 onward, **developed countries have consistently outperformed developing countries**. This could be because **developed nations increasingly built on stronger math pipelines due to better funding and resources**; while some developing nations might face education system erosion due to political or economical instability. **Talented students from developing countries might also move to and hence train in developed countries**, skewing the scores in favor of developed countries. This can be seen from many US IMO team members having foreign names, typically from top-performing developing countries (Finance and Development, 1999). 
+
+ 
+
+This suggests that **performance at IMO is not solely about GDP** and that over time, sustained investment and institutional maturity in developed nations have widened the gap. 
+
+
+
+
+
+### Summary of Key Insights
+
+From the data, the **stereotype of developed countries outperforming developing countries has been most prominently displayed** as the performance gap between developed and developing countries seems to have widened over the years from 2005 onwards, showing an upward-sloping trend for the stereotype. The **stereotype of Asians outperforming non-Asians shows a trend of breakdown** as the performance of most regions in Asia have been somewhat similar to that of non-Asian countries. The stereotype was only particularly observable in 2 out of 5 of the regions, making this stereotype a lot less significant than the previous. The **stereotype that shows a more obvious breakdown is the claim that Mathematics is a male-dominant field** as female participation has shown an increasing trend over the years. To conclude, while certain stereotypes about performance in IMO still hold true, **many of such stereotypes are gradually breaking down over the years**. 
+
+
+
+
+
+## **Teamwork**:
+
+This section details the distribution of work among team members:
+
+- Kai Joon: Introduction, Discussion
+- Jin Yu: Data Cleaning and Summary, Discussion
+- Isaac: Generation of Plot 1, Discussion
+- Fang Hsu: Generation of Plot 2, Discussion
+- Carissa: Generation of Plot 3, Discussion
+- Xinyue: Overall Formatting and  Edit, Discussion (Summary of Overall Patterns)
+
+## **References**:
+
+Carrington, W. J., & Detragiache, E. (1999). *How extensive is the brain drain?* Finance & Development, 36(2). International Monetary Fund. Retrieved April 18, 2025, from https://www.imf.org/external/pubs/ft/fandd/1999/06/carringt.htm 
+
+Khurana, H. (2024). *International Mathematical Olympiad (IMO) Data*. TidyTuesday. Retrieved April 18, 2025, from https://github.com/rfordatascience/tidytuesday/blob/main/data/2024/2024-09-24/readme.md
+
+Riegle-Crumb, C., Moore, C., & Buontempo, J. (2017). Shifting STEM Stereotypes? Considering the Role of Peer and Teacher Gender. *Journal of research on adolescence : the official journal of the Society for Research on Adolescence, 27(3)*, 492–505. https://doi.org/10.1111/jora.12289
+
+Wang, M. T., & Degol, J. L. (2017). Gender Gap in Science, Technology, Engineering, and Mathematics (STEM): Current Knowledge, Implications for Practice, Policy, and Future Directions. *Educational psychology review, 29(1)*, 119–140. https://doi.org/10.1007/s10648-015-9355-x
+
+World Population Review. (n.d.). *Developed countries 2025*. Retrieved April 18, 2025, from https://worldpopulationreview.com/country-rankings/developed-countries#title
+
+Worldometer.(n.d.). *How many countries in Asia? - Worldometer.* https://www.worldometers.info/geography/how-many-countries-in-asia/
+
