@@ -1,0 +1,354 @@
+---
+title: "grp proj 2"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+
+## 1. Setup
+
+This section loads required libraries and defines utility functions for exploring the structure and quality of the dataset.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(readr)
+
+# Function to check structure, NA values, and duplicates
+check_data <- function(data) {
+  cat("### Data Structure\n")
+  str(data)
+  cat("\n### Missing Values per Column\n")
+  missing_df <- data %>%
+    summarise_all(~sum(is.na(.))) %>%
+    pivot_longer(everything(), names_to = "Column", values_to = "Missing_Values") %>%
+    arrange(desc(Missing_Values))
+  print(knitr::kable(missing_df))
+  cat("\n### Total Duplicate Rows:\n")
+  cat(sum(duplicated(data)), "\n")
+}
+
+# Function to print levels for all factor columns
+check_factor_levels <- function(data) {
+  for (colname in names(data)) {
+    if (is.factor(data[[colname]])) {
+      cat(paste0("Levels for '", colname, "':\n"))
+      print(levels(data[[colname]]))
+      cat("\n")
+    }
+  }
+}
+```
+
+## 2. Reading in Base Data
+
+This section imports the country-level and individual-level IMO results.
+
+```{r data_import}
+country_results <- as_tibble(read_csv("../data/country_results_df.csv", na = c("NA", ""), col_types = cols(
+  year = col_integer(),
+  country = col_character(),
+  team_size_all = col_integer(),
+  team_size_male = col_integer(),
+  team_size_female = col_integer(),
+  p1 = col_integer(),
+  p2 = col_integer(),
+  p3 = col_integer(),
+  p4 = col_integer(),
+  p5 = col_integer(),
+  p6 = col_integer(),
+  p7 = col_integer(),
+  awards_gold = col_integer(),
+  awards_silver = col_integer(),
+  awards_bronze = col_integer(),
+  awards_honorable_mentions = col_integer(),
+  leader = col_character(),
+  deputy_leader = col_character()
+)))
+
+individual_results <- as_tibble(read_csv("../data/individual_results_df.csv", na = c("NA", ""), col_types = cols(
+  year = col_integer(),
+  contestant = col_character(),
+  country = col_character(),
+  p1 = col_integer(),
+  p2 = col_integer(),
+  p3 = col_integer(),
+  p4 = col_integer(),
+  p5 = col_integer(),
+  p6 = col_integer(),
+  p7 = col_integer(),
+  total = col_integer(),
+  individual_rank = col_integer(),
+  award = col_character()
+)))
+```
+
+## 3. Data Exploration
+
+### 3.1 Country Results Exploration
+
+-   Filtering data post-1991 and checking structure and missing values.
+
+-   Important columns like Year, country and team size have no NA values
+
+-   The scores for p1 to p6 as well as the awards section are all consistent.
+
+-   The only column with NA values is The Democratic Republic of Korea(North Korea) in 2010
+
+```{r country_results_exploration}
+# Filter data after 1991 and convert appropriate columns to factors for analysis
+country_results_analysis <- country_results %>%
+  filter(year > 1991) %>%
+  mutate(
+    country = as.factor(country),
+    awards_gold = as.factor(awards_gold),
+    awards_silver = as.factor(awards_silver),
+    awards_bronze = as.factor(awards_bronze),
+    awards_honorable_mentions = as.factor(awards_honorable_mentions),
+    p1 = as.factor(p1),
+    p2 = as.factor(p2),
+    p3 = as.factor(p3),
+    p4 = as.factor(p4),
+    p5 = as.factor(p5),
+    p6 = as.factor(p6),
+    p7 = as.factor(p7)
+  )
+
+# Check data structure and missing values
+check_data(country_results_analysis)
+check_factor_levels(country_results_analysis)
+
+# Identify row with missing p1 to p6 values
+country_results_analysis %>%
+  filter(is.na(p1))
+
+```
+
+### 3.2 Individual Results Exploration
+
+Checking data structure, missing values, and consistency between problem scores and total score.
+
+-   Many countries with placeholder names "C1" to "C26"
+
+-   The total and sum of p1 to p7 is consistent.
+
+-   There is one row with NA values for p1 to p6 (1992, Alexei Borodin)
+
+```{r individual_results_exploration}
+# Filter data after 1991 and convert appropriate columns to factors for analysis
+individual_results_analysis <- individual_results %>%
+  filter(year > 1991) %>%
+  mutate(
+    country = as.factor(country),
+    p1 = as.factor(p1),
+    p2 = as.factor(p2),
+    p3 = as.factor(p3),
+    p4 = as.factor(p4),
+    p5 = as.factor(p5),
+    p6 = as.factor(p6),
+    p7 = as.factor(p7),
+    total = as.factor(total),
+    award = as.factor(award)
+  )
+
+# Check data structure and missing values
+check_data(individual_results_analysis)
+check_factor_levels(individual_results_analysis)
+
+# Identify rows with missing p1 values
+individual_results_analysis %>%
+  filter(is.na(p1))
+
+# Check for discrepancies between sum of problem scores and total score
+individual_results %>%
+  mutate(
+    sum_p = as.integer(p1) + as.integer(p2) + as.integer(p3) +
+            as.integer(p4) + as.integer(p5) + as.integer(p6) + as.integer(p7),
+    difference = as.integer(total) - sum_p
+  ) %>%
+  filter(difference != 0)
+
+
+```
+
+## 4. Data Transformation
+
+### 4.1 Standardizing Russian Country Codes
+
+Relabel unofficial codes C01–C26 as "Russian Federation".
+
+```{r relabel_russian_entries}
+russian_codes <- sprintf("C%02d", 1:26)
+
+individual_results_standardized <- individual_results %>%
+  mutate(country = ifelse(country %in% russian_codes, "Russian Federation", country))
+```
+
+### 4.2 Creating Russia Country Rows (2022–2024)
+
+Aggregate Russian participants' data into new country-level rows.
+
+```{r create_russian_rows}
+russian_2022_2024 <- individual_results_standardized %>%
+  filter(country == "Russian Federation", year %in% 2022:2024)
+
+country_russia_rows <- russian_2022_2024 %>%
+  group_by(year) %>%
+  summarise(
+    country = "Russian Federation",
+    team_size_all = n(),
+    team_size_male = 0,
+    team_size_female = 0,
+    p1 = sum(p1), p2 = sum(p2), p3 = sum(p3),
+    p4 = sum(p4), p5 = sum(p5), p6 = sum(p6), p7 = 0,
+    awards_gold = sum(award == "Gold medal"),
+    awards_silver = sum(award == "Silver medal"),
+    awards_bronze = sum(award == "Bronze medal"),
+    awards_honorable_mentions = sum(award == "Honourable mention"),
+    leader = NA, deputy_leader = NA
+  )
+
+country_results_complete <- bind_rows(country_results, country_russia_rows)
+```
+
+### 4.3 Final Cleanup: Replace NAs with 0 and filter post-1991
+
+```{r final_cleanup}
+individual_results_final <- individual_results_standardized %>%
+  filter(year > 1991) %>%
+  mutate(across(p1:total, ~ replace_na(., 0)))
+
+country_results_final <- country_results_complete %>%
+  filter(year > 1991) %>%
+  mutate(across(team_size_all:awards_honorable_mentions, ~ replace_na(., 0)))
+```
+
+## 5. Final Output
+
+These are the cleaned datasets your team should use for analysis:
+
+-   `individual_results_final`
+-   `country_results_fina;`
+
+```{r}
+head(individual_results_final)
+head(country_results_final)
+```
+
+## 6. Summary and Additional info
+
+### **Key Outcomes of Data Cleaning**
+
+1.  Filtered both datasets to include only data after 1991 as specified
+
+2.  Standardized country names, particularly for Russian Federation participants (codes C01-C26)
+
+3.  Created and added missing country-level data for Russian Federation from 2022-2024
+
+4.  Addressed missing values by replacing NAs with zeros in relevant numeric columns
+
+5.  Verified data integrity by checking for score discrepancies
+
+### **Final Datasets for Analysis**
+
+-   **individual_results_final**: Contains cleaned individual contestant data from 1992 onwards
+
+-   **country_results_final**: Contains cleaned country-level results data from 1992 onwards
+
+### **For Team Members**
+
+These datasets are now ready for analysis. When working with the data, keep in mind:
+
+-   Problem scores (p1-p7) represent points earned on each problem
+
+-   For some years, p7 may not be present (competition had 6 problems)
+
+-   Team size data may be incomplete for some countries, especially gender breakdowns
+
+-   Russian Federation data from 2022-2024 was reconstructed from individual entries
+
+# Final problems with data
+
+### 1. Splitting of Yugoslavia into Serbia, Bosnia and Montenegro
+
+-   Yugoslavia officially split into 3 countries in 1991 - 1992. However, there still exists a small version of Yugoslavia from 1992 till 2006. Its name then changed to "Serbia and Montenegro"
+
+```{r}
+individual_results_final %>%
+  filter(country == "Yugoslavia")
+```
+
+### 2. Recombination and splitting again of **Serbia and Montenegro**
+
+-   Serbia and Montenegro combined in 2003 to 2006
+
+-   They split up again after 2006 to become 2 separate countries "Serbia" and "Montenegro"
+
+### 3. The splitting of Czechoslovakia in 1993 into Czech republic and Slovakia
+
+
+
+
+## Plot 3: Results of developing vs developed countries
+This plot explores the `avg_team_score` variable against the `year` variable and aims to see if the status of the country (Developed or Developing) affects the average number of points attained by the country. We believe a bar graph is ideal to display this relationship as it showcases the mean points attained by each type of country across the years, from 1992 to 2024. Thus, we can better compare the difference in performance between the Developing and Developed countries to help answer our overarching question. For our analysis we have taken the list of developed countries from the World Population review which classifies a Developed Country as one that has a Human Development Index (HDI) greater than 0.800, which represents a higher quality of life. 
+
+We have decided to account for differing team size of each country by taking the mean points per country instead of the overall number of points or overall number of awards. We than accounted for differing number of Developed vs Developing countries that participated by taking the mean number of points of Developed vs  Developing, instead of the total points scored. We have also decided to facet by decade for a clearer comparison. 
+
+https://worldpopulationreview.com/country-rankings/developed-countries#title
+
+```{r}
+## preparing data 
+
+## list of developed countries 
+developed_countries <- c("United States of America", "Canada", "United Kingdom", "Germany", "France", 
+                         "Italy", "Japan", "Republic of Korea", "Australia", "New Zealand",
+                         "Norway", "Sweden", "Denmark", "Finland", "Netherlands",
+                         "Switzerland", "Austria", "Belgium", "Ireland", "Luxembourg",
+                         "Spain", "Portugal", "Greece", "Israel", "Singapore", 
+                         "Iceland", "Slovenia", "Estonia", "Czech Republic", 
+                         "Lithuania", "Latvia", "Poland", "Hungary", "Slovakia", "Hong Kong", "Liechtenstein", "United Arab Emirates", "Malta", "Cyprus", "Bahrain", "Andorra", "Croatia", "Saudi Arabia", "Qatar", "San Marino", "Chile", "Türkiye", "Argentina", "Kuwait", "Montenegro", "Saint Kitts and Nevis", "Uruguay", "Romania", "Antigua and Barbuda", "Brunei", "Russian Federation", "Panama", "Bahamas", "Oman", "Georgia", "Trinidad and Tobago", "Barbados", "Malaysia", "Costa Rica", "Serbia", "Thailand", "Kazakhstan", "Seychelles", "Belarus")
+
+plot <- country_results_final %>%
+  mutate(status = ifelse(country %in% developed_countries, "Developed", "Developing")) %>%
+  group_by(year, country, status) %>%
+  summarise(average_points = (sum(p1 + p2 + p3 + p4 + p5 + p6 + p7))/ team_size_all, na.rm = T) %>%
+  ungroup()
+
+plot_summary <- plot %>%
+  mutate(decade = paste0(floor(year / 10) * 10, "s")) %>% 
+  group_by(year, status, decade) %>%
+  summarise(avg_team_score = mean(average_points, na.rm = TRUE), .groups = "drop")
+
+## plot 
+library(scales)
+ggplot(plot_summary, aes(x = year, y = avg_team_score, fill = status)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Average IMO Team Score by Development Status (Faceted by Decade)",
+       x = "Year", y = "Average Team Score") +
+  scale_x_continuous(breaks = pretty_breaks(n = 5), labels = function(x) format(x, digits = 1)) +
+  facet_wrap(~ decade, scales = "free_x") +
+  theme_minimal()
+
+```
+### Plot 3: Discussion
+The bar plot reveals that from the 1990s to early 2000s, developing countries and developed countries performed relatively similarly, with only a small performance gap typically led by Developed countries except for 1992, 1995, 1998 and 2004 where developing countries scored better. The result could be due to consistent strong teams such as those from China, Iran and Vietnam, that are often classified as developing in GDP terms. 
+
+However, from 2005 onward, developed countries have consistently outperformed developing countries. This could be because developed nations increasingly built on stronger math pipelines due to better funding and resources; while some developing nations might face education system erosion due to political or economical instability. Talented students from developing countries might also move to and hence train in developed countries, skewing the scores in favor of developed countries. This can be seen from many US IMO team members having foreign names, typically from top-performing developing countries. 
+
+https://www.imf.org/external/pubs/ft/fandd/1999/06/carringt.htm 
+- suggests the extent of brain drain to the United States 
+
+This suggests that performance at IMO is not solely about GDP and that over time, sustained investment and institutional maturity in developed nations have widened the gap. 
+
+```{r}
+# number of teams from developing countries vs developed countries 
+team_counts <- plot %>%
+  group_by(year, status) %>%
+  summarise(num_teams = n(), .groups = "drop")
+```
+- in the past, there were more developed countries competing than developing countries
+- in recent years, its about the same number (does not differ as much)
+
+
+
