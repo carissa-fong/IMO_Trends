@@ -1,0 +1,78 @@
+---
+title: "Group project"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading libraries
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(ggthemes)
+```
+
+
+## Loading in data
+
+```{r}
+country_results_df <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2024/2024-09-24/country_results_df.csv')
+individual_results_df <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2024/2024-09-24/individual_results_df.csv')
+timeline_df <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2024/2024-09-24/timeline_df.csv')
+```
+
+## Plot 2: Distribution of participation by gender, lineplot of groups with females vs no females
+```{r}
+
+# Data cleaning
+plot2 <- country_results_df %>%
+  select(-starts_with("p"), -leader, -deputy_leader, -awards_honorable_mentions) %>% # remove honorable because only starts in 2006
+  filter(year > 1991) %>%
+  replace_na(list(
+    awards_gold = 0,
+    awards_silver = 0,
+    awards_bronze = 0,
+    team_size_male = 0, # safe to change because NA represent no male in team
+    team_size_female = 0 # safe to change because NA represent no female in team
+  )) %>%
+  mutate(
+    award_score = 3 * awards_gold + 2 * awards_silver + 1 * awards_bronze
+  ) %>%
+  mutate(
+    team_gender_group = if_else(team_size_female > 0, "With Female", "All Male")
+  ) %>%
+  group_by(year, team_gender_group) %>%
+  summarise(
+    avg_award_score = mean(award_score, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+
+```{r}
+# Plot
+ggplot(plot2, aes(x = year, y = avg_award_score, color = team_gender_group)) +
+  geom_line(size = 1.2) +
+  geom_point() + # Add points to make each data point visible
+  scale_x_continuous(breaks = seq(min(plot2$year), max(plot2$year), by = 1)) + # Show every year on x-axis
+  scale_y_continuous(breaks = pretty(plot2$avg_award_score, n = 20)) + # Show appropriate breaks on y-axis
+  labs(
+    title = "Average Award Score by Team Gender Composition",
+    x = "Year",
+    y = "Average Award Score",
+    color = "Team Type"
+  ) +
+  scale_color_manual( 
+    values = c("With Female" = "lightpink2", "All Male" = "lightskyblue"),
+    name = "Team Type"  
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 75, hjust = 1),
+        legend.position = "bottom") # Rotate x-axis labels
+```
+
+
