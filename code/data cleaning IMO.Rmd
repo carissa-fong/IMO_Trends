@@ -1,0 +1,224 @@
+---
+title: "data cleaning IMO"
+output: html_document
+date: "`r Sys.Date()`"
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(readr)
+
+check_data <- function(data) {
+  cat("### Data Structure\n")
+  str(data)
+
+  cat("\n### Missing Values per Column\n")
+  missing_df <- data %>%
+    summarise_all(~sum(is.na(.))) %>%
+    pivot_longer(everything(), names_to = "Column", values_to = "Missing_Values") %>%
+    arrange(desc(Missing_Values))
+
+  print(knitr::kable(missing_df))
+
+  cat("\n### Total Duplicate Rows\n")
+  duplicates <- sum(duplicated(data))
+  cat(paste0(duplicates, "\n"))
+}
+
+check_factor_levels <- function(data) {
+  for (colname in names(data)) {
+    if (is.factor(data[[colname]])) {
+      cat(paste0("Levels for '", colname, "':\n"))
+      print(levels(data[[colname]]))
+      cat("\n")
+    }
+  }
+}
+
+```
+
+
+
+```{r}
+country_results <- as_tibble(read_csv("../data/country_results_df.csv", col_types = cols(
+  year = col_integer(),
+  country = col_character(),
+  team_size_all = col_integer(),
+  team_size_male = col_integer(),
+  team_size_female = col_integer(),
+  p1 = col_integer(),
+  p2 = col_integer(),
+  p3 = col_integer(),
+  p4 = col_integer(),
+  p5 = col_integer(),
+  p6 = col_integer(),
+  p7 = col_integer(),
+  awards_gold = col_integer(),
+  awards_silver = col_integer(),
+  awards_bronze = col_integer(),
+  awards_honorable_mentions = col_integer(),
+  leader = col_character(),
+  deputy_leader = col_character()
+)))
+
+individual_results <- as_tibble(read_csv("../data/individual_results_df.csv", col_types = cols(
+  year = col_integer(),
+  contestant = col_character(),
+  country = col_character(),
+  p1 = col_integer(),
+  p2 = col_integer(),
+  p3 = col_integer(),
+  p4 = col_integer(),
+  p5 = col_integer(),
+  p6 = col_integer(),
+  p7 = col_integer(),
+  total = col_integer(),
+  individual_rank = col_integer(),
+  award = col_character()
+)))
+
+timeline <- as_tibble(read_csv("../data/timeline_df.csv", col_types = cols(
+  edition = col_integer(),
+  year = col_integer(),
+  country = col_character(),
+  city = col_character(),
+  countries = col_integer(),
+  all_contestant = col_integer(),
+  male_contestant = col_integer(),
+  female_contestant = col_integer(),
+  start_date = col_date(),
+  end_date = col_date()
+)))
+
+```
+
+# country_results_df analysis
+
+
+
+## Original Data
+
+```{r}
+check_data(country_results)
+```
+
+## Country_results: Factor data and analysis
+
+```{r}
+
+country_results_cleaned <- country_results %>%
+  mutate(
+    country = as.factor(country),
+    year = as.factor(year),
+    awards_gold = as.factor(awards_gold),
+    awards_silver = as.factor(awards_silver),
+    awards_bronze = as.factor(awards_bronze),
+    awards_honorable_mentions = as.factor(awards_honorable_mentions),
+    p1 = as.factor(p1),
+    p2 = as.factor(p2),
+    p3 = as.factor(p3),
+    p4 = as.factor(p4),
+    p5 = as.factor(p5),
+    p6 = as.factor(p6),
+    p7 = as.factor(p7),
+  )
+
+check_factor_levels(country_results_cleaned)
+summary(country_results_cleaned)
+
+```
+
+## Individual_results_df analysis
+
+![](images/clipboard-2091799831.png)
+
+```{r}
+check_data(individual_results)
+summary(individual_results)
+
+```
+
+### Check if results tally
+
+```{r}
+discrepancy_check <- individual_results %>%
+  mutate(sum_p = as.integer(p1) + as.integer(p2) + as.integer(p3) +
+                 as.integer(p4) + as.integer(p5) + as.integer(p6)+ as.integer(p7),
+         difference = as.integer(total) - sum_p) %>%
+  filter(difference != 0)
+
+# Show rows with discrepancy (All the totals add up if we use p7)
+print(discrepancy_check %>% 
+        select(year, contestant, country, p1, p2, p3, p4, p5, p6,p7, total, sum_p, difference))
+```
+
+## Individual results cleaned data
+
+```{r}
+individual_results_cleaned <- individual_results %>%
+  mutate(
+    year = as.factor(year),
+    country = as.factor(country),
+    p1 = as.factor(p1),
+    p2 = as.factor(p2),
+    p3 = as.factor(p3),
+    p4 = as.factor(p4),
+    p5 = as.factor(p5),
+    p6 = as.factor(p6),
+    p7 = as.factor(p7),
+    total = as.factor(total),
+    award = as.factor(award)
+  )
+
+check_factor_levels(individual_results_cleaned)
+```
+
+## timeline_df original
+
+```{r}
+check_data(timeline)
+```
+
+![](images/clipboard-1596240651.png)
+
+### Checking for mismatch
+
+```{r}
+# Check for mismatches
+inconsistent_rows <- timeline %>%
+  filter((male_contestant + female_contestant) != all_contestant)
+
+# Display number of inconsistent entries
+n_inconsistent <- nrow(inconsistent_rows)
+cat("Number of inconsistent rows:", n_inconsistent, "\n")
+
+# Optionally: View the actual inconsistent rows
+# print(inconsistent_rows)
+
+# Add a column showing the discrepancy
+discrepancy_check <- timeline %>%
+  mutate(sum_mf = male_contestant + female_contestant,
+         difference = all_contestant - sum_mf) %>%
+  filter(difference != 0)
+
+# Show the rows with mismatch and the difference
+print(discrepancy_check %>% select(year, country, male_contestant, female_contestant, all_contestant, sum_mf, difference))
+
+```
+
+## timeline data cleaned and analysis
+
+```{r}
+
+timeline_cleaned <- timeline %>%
+  mutate(
+    edition = as.factor(edition),
+    year = as.factor(year),
+    country = as.factor(country),
+    city = as.factor(city),
+    countries = as.factor(countries)
+  )
+
+check_factor_levels(timeline_cleaned)
+```
